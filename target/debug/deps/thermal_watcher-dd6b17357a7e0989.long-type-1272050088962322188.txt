@@ -1,0 +1,1 @@
+rayon::iter::Map<rayon::iter::Enumerate<rayon::vec::IntoIter<std::string::String>>, fn(std::string::String, usize) -> std::string::String {read_temperature}>
