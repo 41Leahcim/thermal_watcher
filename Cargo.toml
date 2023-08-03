@@ -11,6 +11,7 @@ opt-level = 'z'
 debug = true
 panic = "abort"
 codegen-units = 1
+strip = true
 
 [dependencies]
 clearscreen = "2"

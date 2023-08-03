@@ -1,12 +1,8 @@
-use std::{
-    fs::read_dir,              // To find all thermal_zones
-    fs::DirEntry,              // To read the temperature of a thermal_zone
-    thread::sleep,             // For delay between measurements, reducing resource usage
-    time::{Duration, Instant}, // For measuring performance
-};
+use std::time::{Duration, Instant};
 
-// Allows to perform multiple readings at once
-//use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use smol::stream::StreamExt;
+
+const DELAY: Duration = Duration::from_secs(1);
 
 // Performs a single reading
 async fn read_temperature(path: String, index: usize) -> String {
@@ -21,12 +17,14 @@ async fn read_temperature(path: String, index: usize) -> String {
 }
 
 // Returns the thermal_zone path and id, if the DirEntry is a thermal_zone
-fn thermal_zone_filter(entry: Result<DirEntry, std::io::Error>) -> Option<(String, usize)> {
+async fn thermal_zone_filter(
+    entry: Result<smol::fs::DirEntry, std::io::Error>,
+) -> Option<(String, usize)> {
     // Ignore entries that can't be read
     let Ok(entry) = entry else { return None };
 
     // Ignore entries without file type
-    let Ok(file_type) = entry.file_type() else {
+    let Ok(file_type) = entry.file_type().await else {
         return None;
     };
 
@@ -66,40 +64,56 @@ fn thermal_zone_filter(entry: Result<DirEntry, std::io::Error>) -> Option<(Strin
     }
 }
 
+fn find_thermal_zones() -> Vec<(String, usize)> {
+    smol::block_on(async {
+        smol::fs::read_dir("/sys/class/thermal/") // Read the thermal directory
+            .await // Wait for the directory reading iterator to be created
+            // Panic (exit with error) if the directory doesn't exist or the user doesn't have
+            .unwrap()
+            // filter the directory, only keeping the thermal zones
+            .map(|entry| smol::spawn(thermal_zone_filter(entry)))
+            .collect::<Vec<_>>()
+            .await // Wait for the directory to be read
+    })
+    .into_iter()
+    // Wait for the directory to be filtered, only keeping the thermal zone with the zone id
+    .filter_map(smol::block_on)
+    .collect::<Vec<(String, usize)>>() // Collect all thermal_zones with their id in a vec
+}
+
+fn read_temperatures(thermal_zones: &[(String, usize)]) -> Vec<smol::Task<String>> {
+    thermal_zones
+        .iter()
+        .map(|(path, id)| smol::spawn(read_temperature(path.clone(), *id)))
+        .collect::<Vec<_>>()
+}
+
 fn main() {
-    // Read the /sys/class/thermal/ directory to find all thermal_zones.
-    // This fails if the /sys/class/thermal directory doesn't exist,
-    // like on any OS other than Linux.
-    let mut thermal_zones = read_dir("/sys/class/thermal/")
-        .unwrap()
-        .filter_map(thermal_zone_filter) // Collect all thermal_zones with their id in a vec
-        .collect::<Vec<(String, usize)>>();
+    let mut thermal_zones = find_thermal_zones();
 
     // Sort thermal_zones on id
     thermal_zones.sort_by(|a, b| a.1.cmp(&b.1));
 
     // Create a ClearScreen object to clear the CLI more efficiently
     let clearscreen = clearscreen::ClearScreen::default();
+
+    // Log the temperatures every second
     loop {
         // Start measuring performance
         let start = Instant::now();
 
-        let tasks = thermal_zones
-            .iter()
-            .map(|(path, id)| smol::spawn(read_temperature(path.clone(), *id)))
-            .collect::<Vec<_>>();
+        // Start tasks for reading the thermal zones
+        let tasks = read_temperatures(&thermal_zones);
 
         // Clear the screen
         clearscreen.clear().unwrap();
 
-        // Read all temperatures, all temperature readings will end with a new line
+        // Wait until all thermal zones have been read, add the results to a string.
         let temperatures = tasks.into_iter().map(smol::block_on).collect::<String>();
 
         // Print the readings and performance
         println!("{temperatures}{}", start.elapsed().as_secs_f64());
 
-        // Sleep for a second to save resources.
-        // This shouldn't cause problems as temperatures shouldn't change that quickly.
-        sleep(Duration::from_secs_f64(1.0));
+        std::thread::sleep(DELAY);
     }
 }
