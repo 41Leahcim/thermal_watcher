@@ -1,19 +1,19 @@
 use std::{
-    fs::read_dir,                   // To find all thermal_zones
-    fs::{read_to_string, DirEntry}, // To read the temperature of a thermal_zone
-    thread::sleep,                  // For delay between measurements, reducing resource usage
-    time::{Duration, Instant},      // For measuring performance
+    fs::read_dir,              // To find all thermal_zones
+    fs::DirEntry,              // To read the temperature of a thermal_zone
+    thread::sleep,             // For delay between measurements, reducing resource usage
+    time::{Duration, Instant}, // For measuring performance
 };
 
 // Allows to perform multiple readings at once
-use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+//use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 // Performs a single reading
-fn read_temperature(path: String, index: usize) -> String {
+async fn read_temperature(path: String, index: usize) -> String {
     // Read the temperature from the file, temperature will be 0 if it fails
-    let temperature = read_to_string(path).unwrap_or_default();
+    let temperature = smol::fs::read_to_string(path).await.unwrap_or_default();
 
-    // Remove any whitespace at the end (or beginning)
+    // Remove any whitespace at the beginning or end
     let temperature = temperature.trim();
 
     // Create a formatted string containing the thermal_zone index and the current temperature
@@ -84,15 +84,16 @@ fn main() {
         // Start measuring performance
         let start = Instant::now();
 
+        let tasks = thermal_zones
+            .iter()
+            .map(|(path, id)| smol::spawn(read_temperature(path.clone(), *id)))
+            .collect::<Vec<_>>();
+
         // Clear the screen
         clearscreen.clear().unwrap();
 
         // Read all temperatures, all temperature readings will end with a new line
-        let temperatures = thermal_zones
-            .clone()
-            .into_par_iter()
-            .map(|(path, id)| read_temperature(path, id))
-            .collect::<String>();
+        let temperatures = tasks.into_iter().map(smol::block_on).collect::<String>();
 
         // Print the readings and performance
         println!("{temperatures}{}", start.elapsed().as_secs_f64());
