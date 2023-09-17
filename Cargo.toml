@@ -15,4 +15,4 @@ strip = true
 
 [dependencies]
 clearscreen = "2"
-smol = "1.3.0"
+sysinfo = "0.29.10"
