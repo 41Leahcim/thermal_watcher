@@ -380,6 +380,7 @@ name = "thermal_watcher"
 version = "0.1.0"
 dependencies = [
  "clearscreen",
+ "rayon",
  "sysinfo",
 ]
 

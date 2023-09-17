@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use sysinfo::{ComponentExt, System, SystemExt};
 
 const DELAY: Duration = Duration::from_secs(1);
@@ -24,8 +25,8 @@ fn main() {
         sys.refresh_all();
         let temperatures = sys
             .components()
-            .iter()
-            .fold(String::new(), |mut output, component| {
+            .par_iter()
+            .fold(String::new, |mut output, component| {
                 writeln!(
                     &mut output,
                     "{}: {}",
@@ -34,7 +35,8 @@ fn main() {
                 )
                 .unwrap();
                 output
-            });
+            })
+            .collect::<String>();
 
         // Print the readings and performance
         println!("{temperatures}{}", start.elapsed().as_secs_f64());
