@@ -15,5 +15,4 @@ strip = true
 
 [dependencies]
 clearscreen = "2"
-rayon = "1.7.0"
 sysinfo = "0.29.10"
