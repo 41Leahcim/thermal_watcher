@@ -1,21 +1,23 @@
 use std::{
-    fmt::Write,
-    sync::mpsc::{channel, Receiver, Sender},
+    fmt::Write as _,
+    io::{self, Write as _},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use sysinfo::{ComponentExt, System, SystemExt};
 
 const DELAY: Duration = Duration::from_secs(1);
 
-fn temperature_updater(rx: Receiver<()>, tx: Sender<String>) {
+fn temperature_updater() {
     // Create a system instance and a string for the temperatures
     let mut sys = System::new_all();
     let mut temperatures = String::new();
 
-    // Only perform an action when a request has been received
-    for _ in rx {
+    loop {
+        // Wait until the temperatures have to be updated
+        thread::park();
+
         // Update the temperatures
         sys.refresh_all();
 
@@ -34,7 +36,7 @@ fn temperature_updater(rx: Receiver<()>, tx: Sender<String>) {
             });
 
         // Send the temperatures
-        tx.send(temperatures.clone()).unwrap();
+        io::stdout().lock().write_all(temperatures.as_bytes()).ok();
 
         // Clear the temperatures buffer
         temperatures.clear();
@@ -45,32 +47,16 @@ fn main() {
     // Create a ClearScreen object to clear the CLI more efficiently
     let clearscreen = clearscreen::ClearScreen::default();
 
-    // Create 2 channels, 1 for sending requests and 1 for receiving temperatues
-    let (req_tx, req_rx) = channel();
-    let (result_tx, result_rx) = channel();
-
     // Spawn a thread to update the temperatures
-    thread::spawn(|| temperature_updater(req_rx, result_tx));
-
-    // Request a temperature measurement
-    req_tx.send(()).unwrap();
+    let logger = thread::spawn(temperature_updater);
 
     // Log the temperatures every second
     loop {
-        // Start measuring performance
-        let start = Instant::now();
+        // Request a temperature measurement
+        logger.thread().unpark();
 
         // Clear the screen
-        clearscreen.clear().unwrap();
-
-        // Receive the temperatures
-        let temperatures = result_rx.recv().unwrap();
-
-        // Print the readings and performance
-        println!("{temperatures}{}", start.elapsed().as_secs_f64());
-
-        // Request a temperature measurement
-        req_tx.send(()).unwrap();
+        clearscreen.clear_to(&mut io::stdout().lock()).unwrap();
 
         // Wait some time to save resources
         std::thread::sleep(DELAY);
